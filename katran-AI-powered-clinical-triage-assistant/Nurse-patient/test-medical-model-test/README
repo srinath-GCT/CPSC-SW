@@ -1,0 +1,38 @@
+Here's a straight-to-the-point README for your juniors.
+
+## How to Run the Nursing Assistant Demo
+
+### 1. What You Need
+- **Python 3.9 or higher**
+
+### 2. Steps to Run
+1. **Open a terminal** (Command Prompt or PowerShell).
+2. **Go to the project folder**:
+   ```bash
+   cd path\to\nursing-assistant-demo
+   ```
+3. **Set up the environment**:
+   ```bash
+   python -m venv venv
+   .\venv\Scripts\Activate
+   ```
+4. **Install the requirements**:
+   ```bash
+   pip install fastapi uvicorn
+   ```
+5. **Run the app**:
+   ```bash
+   python app.py
+   ```
+6. **Open your browser** and go to: [http://localhost:8000](http://localhost:8000)
+
+### 3. Test It
+Paste this in the web app:
+```
+Patient: I have chest pain since morning.
+Nurse: Any medications?
+Patient: Taking aspirin. Allergic to penicillin.
+```
+Click **Analyze Conversation** to see it work.
+
+**Keep it running**: The app works as long as the terminal showing `Uvicorn running on http://0.0.0.0:8000` is open.
