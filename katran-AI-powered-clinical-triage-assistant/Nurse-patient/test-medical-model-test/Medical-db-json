@@ -1,0 +1,23 @@
+{
+  "symptoms": [
+    "pain", "ache", "fever", "cough", "headache", 
+    "chest pain", "shortness of breath", "nausea", 
+    "dizziness", "fatigue", "weakness", "vomiting"
+  ],
+  "medications": [
+    "aspirin", "metformin", "insulin", "ibuprofen",
+    "paracetamol", "amlodipine", "atenolol", "losartan"
+  ],
+  "allergies": [
+    "penicillin", "sulfa", "aspirin", "latex", "ibuprofen"
+  ],
+  "time_keywords": [
+    "since", "for", "today", "yesterday", "morning",
+    "evening", "days", "hours", "weeks", "ago"
+  ],
+  "severity_keywords": {
+    "high": ["severe", "unbearable", "worst", "terrible", "excruciating"],
+    "medium": ["moderate", "manageable", "okay", "bearable"],
+    "low": ["mild", "slight", "little", "minor", "tolerable"]
+  }
+}
