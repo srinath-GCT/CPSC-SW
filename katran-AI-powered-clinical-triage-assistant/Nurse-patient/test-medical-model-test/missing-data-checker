@@ -1,0 +1,183 @@
+"""
+Missing Information Checker
+Purpose: Identify what medical information is missing and suggest questions
+"""
+from typing import Dict, List
+
+class MissingChecker:
+    def __init__(self):
+        # Define what information is critical vs important
+        self.requirements = [
+            {
+                "id": "symptoms",
+                "name": "Chief Complaint/Symptoms",
+                "question": "What symptoms are you experiencing?",
+                "hint": "For example: pain, fever, cough, difficulty breathing",
+                "priority": "critical",
+                "requires": None
+            },
+            {
+                "id": "duration",
+                "name": "Duration of Symptoms",
+                "question": "How long have you had these symptoms?",
+                "hint": "For example: since morning, for 2 days, since yesterday",
+                "priority": "critical",
+                "requires": "symptoms"  # Only ask if symptoms exist
+            },
+            {
+                "id": "severity",
+                "name": "Pain Severity",
+                "question": "Is the pain mild, moderate, or severe?",
+                "hint": "Describe in your own words - mild, moderate, or severe",
+                "priority": "important",
+                "requires": "symptoms"  # Only ask if symptoms exist
+            },
+            {
+                "id": "medications",
+                "name": "Current Medications",
+                "question": "Are you currently taking any medications?",
+                "hint": "Any pills, tablets, injections you take regularly",
+                "priority": "critical",
+                "requires": None
+            },
+            {
+                "id": "allergies",
+                "name": "Medication Allergies",
+                "question": "Do you have any allergies to medicines?",
+                "hint": "Any medicine that causes rash, swelling, or reaction",
+                "priority": "critical",
+                "requires": None
+            }
+        ]
+    
+    def check(self, extracted_data: Dict) -> Dict:
+        """
+        Check what information is missing based on extracted data
+        Returns: Dictionary with missing items and questions
+        """
+        missing = []
+        questions = []
+        status = {}
+        
+        for req in self.requirements:
+            item_id = req["id"]
+            
+            # Check if this requirement depends on another
+            if req["requires"] and not self._has_requirement(extracted_data, req["requires"]):
+                status[item_id] = {"status": "not_applicable", "reason": f"Requires {req['requires']}"}
+                continue
+            
+            # Check if data exists
+            if self._has_data(extracted_data, item_id):
+                status[item_id] = {"status": "complete", "data": self._get_data(extracted_data, item_id)}
+            else:
+                # Data is missing
+                missing.append({
+                    "id": item_id,
+                    "name": req["name"],
+                    "priority": req["priority"]
+                })
+                questions.append({
+                    "question": req["question"],
+                    "hint": req["hint"],
+                    "priority": req["priority"],
+                    "for": item_id
+                })
+                status[item_id] = {"status": "missing"}
+        
+        return {
+            "missing_items": missing,
+            "questions": questions,
+            "status": status,
+            "summary": self._create_summary(status)
+        }
+    
+    def _has_requirement(self, data: Dict, requirement: str) -> bool:
+        """Check if prerequisite requirement is met"""
+        if requirement == "symptoms":
+            return bool(data.get("symptoms"))
+        return False
+    
+    def _has_data(self, data: Dict, item_id: str) -> bool:
+        """Check if specific data exists"""
+        if item_id == "symptoms":
+            return bool(data.get("symptoms"))
+        elif item_id == "duration":
+            return bool(data.get("time_info", {}).get("duration") or 
+                       data.get("time_info", {}).get("start_time"))
+        elif item_id == "severity":
+            return data.get("severity") != "not mentioned"
+        elif item_id == "medications":
+            return bool(data.get("medications"))
+        elif item_id == "allergies":
+            return bool(data.get("allergies"))
+        return False
+    
+    def _get_data(self, data: Dict, item_id: str):
+        """Get the actual data for an item"""
+        if item_id == "symptoms":
+            return [s["item"] for s in data.get("symptoms", [])]
+        elif item_id == "duration":
+            return data.get("time_info", {})
+        elif item_id == "severity":
+            return data.get("severity")
+        elif item_id == "medications":
+            return data.get("medications", [])
+        elif item_id == "allergies":
+            return data.get("allergies", [])
+        return None
+    
+    def _create_summary(self, status: Dict) -> Dict:
+        """Create a summary of data completeness"""
+        complete = 0
+        missing = 0
+        not_applicable = 0
+        
+        for item_status in status.values():
+            if item_status["status"] == "complete":
+                complete += 1
+            elif item_status["status"] == "missing":
+                missing += 1
+            elif item_status["status"] == "not_applicable":
+                not_applicable += 1
+        
+        total = complete + missing + not_applicable
+        
+        return {
+            "complete": complete,
+            "missing": missing,
+            "not_applicable": not_applicable,
+            "total": total,
+            "completion_rate": f"{complete}/{total}" if total > 0 else "0/0"
+        }
+
+# Test function
+def test_checker():
+    """Test the missing checker"""
+    checker = MissingChecker()
+    
+    test_data = [
+        {"symptoms": [], "medications": [], "allergies": [], "time_info": {}, "severity": "not mentioned"},
+        {"symptoms": [{"item": "headache"}], "medications": ["aspirin"], "allergies": [], 
+         "time_info": {"duration": "2 days"}, "severity": "mild"},
+    ]
+    
+    for i, data in enumerate(test_data, 1):
+        print(f"\n{'='*60}")
+        print(f"Test Case {i}")
+        print('-'*60)
+        result = checker.check(data)
+        
+        print("Missing Items:")
+        for item in result["missing_items"]:
+            print(f"  • {item['name']} ({item['priority']})")
+        
+        print("\nQuestions to Ask:")
+        for q in result["questions"]:
+            print(f"  • {q['question']}")
+            print(f"    Hint: {q['hint']}")
+        
+        print(f"\nSummary: {result['summary']['completion_rate']} complete")
+
+if __name__ == "__main__":
+    test_checker()
