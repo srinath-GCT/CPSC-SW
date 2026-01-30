@@ -1,0 +1,361 @@
+"""
+AI Nursing Assistant - Main Server
+Simple 2-tab interface for demonstration
+"""
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
+import json
+
+from medical_extractor import MedicalExtractor
+from missing_checker import MissingChecker
+
+# Initialize components
+app = FastAPI(title="AI Nursing Assistant Demo", version="1.0")
+
+# Allow CORS for development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Initialize our modules
+extractor = MedicalExtractor("medical_db.json")
+checker = MissingChecker()
+
+@app.get("/", response_class=HTMLResponse)
+async def home():
+    """Main interface - 2 simple tabs"""
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>AI Nursing Assistant - Demo</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; font-family: Arial, sans-serif; }
+            body { background: #f5f5f5; padding: 20px; }
+            .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+            .header { background: #2c3e50; color: white; padding: 20px; border-radius: 10px 10px 0 0; }
+            .header h1 { font-size: 24px; margin-bottom: 5px; }
+            .header p { opacity: 0.8; font-size: 14px; }
+            .tabs { display: flex; background: #34495e; }
+            .tab-btn { flex: 1; padding: 15px; background: none; border: none; color: white; cursor: pointer; }
+            .tab-btn.active { background: #1abc9c; font-weight: bold; }
+            .tab-content { display: none; padding: 20px; }
+            .tab-content.active { display: block; }
+            textarea { width: 100%; height: 200px; padding: 15px; border: 2px solid #ddd; border-radius: 5px; font-size: 14px; margin-bottom: 15px; resize: vertical; }
+            textarea:focus { outline: none; border-color: #1abc9c; }
+            button { background: #1abc9c; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 5px; cursor: pointer; margin-right: 10px; }
+            button:hover { background: #16a085; }
+            .questions-box { background: #f8f9fa; border: 1px solid #ddd; border-radius: 5px; padding: 15px; margin-top: 15px; }
+            .question-item { background: white; padding: 10px; margin-bottom: 10px; border-radius: 5px; border-left: 4px solid #3498db; }
+            .question-item.critical { border-left-color: #e74c3c; background: #fff5f5; }
+            .summary-box { background: #f8f9fa; border: 1px solid #ddd; border-radius: 5px; padding: 15px; margin-top: 15px; }
+            .summary-item { padding: 8px; margin-bottom: 5px; border-radius: 3px; }
+            .summary-item.complete { background: #d4edda; color: #155724; }
+            .summary-item.missing { background: #f8d7da; color: #721c24; }
+            .highlight { background: yellow; padding: 2px; }
+            .med-highlight { background: #90caf9; padding: 2px; }
+            .allergy-highlight { background: #ef9a9a; padding: 2px; }
+            .time-highlight { background: #a5d6a7; padding: 2px; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>🩺 AI Nursing Assistant - Demo System</h1>
+                <p>Simple demonstration for nursing education | Extracts medical info from conversations</p>
+            </div>
+            
+            <div class="tabs">
+                <button class="tab-btn active" onclick="showTab('conversation')">💬 Conversation Analysis</button>
+                <button class="tab-btn" onclick="showTab('database')">📊 Medical Database</button>
+            </div>
+            
+            <!-- Tab 1: Conversation Analysis -->
+            <div id="conversation" class="tab-content active">
+                <h3>Enter Nurse-Patient Conversation</h3>
+                <textarea id="conversationText" placeholder="Type or paste conversation here...">
+Nurse: What brings you in today?
+Patient: I have severe chest pain since morning.
+Nurse: Any medications?
+Patient: Taking aspirin daily.
+Nurse: Any allergies?
+Patient: Allergic to penicillin.
+                </textarea>
+                
+                <div>
+                    <button onclick="analyzeConversation()">🔍 Analyze Conversation</button>
+                    <button onclick="clearText()" style="background: #95a5a6;">🗑️ Clear</button>
+                </div>
+                
+                <div class="questions-box" id="questionsBox">
+                    <h4>Questions to Ask Next:</h4>
+                    <p>Click "Analyze" to see questions...</p>
+                </div>
+                
+                <div class="summary-box" id="summaryBox" style="display: none;">
+                    <h4>Analysis Summary:</h4>
+                    <div id="summaryContent"></div>
+                </div>
+                
+                <div style="margin-top: 20px; padding: 15px; background: #e8f4fc; border-radius: 5px;">
+                    <h4>💡 Try These Test Cases:</h4>
+                    <p style="margin: 5px 0;"><strong>Test 1:</strong> "Mild headache for 2 days. No medications."</p>
+                    <p style="margin: 5px 0;"><strong>Test 2:</strong> "Fever and cough since yesterday. Taking metformin."</p>
+                    <p style="margin: 5px 0;"><strong>Test 3:</strong> "Back pain. Allergic to aspirin."</p>
+                </div>
+            </div>
+            
+            <!-- Tab 2: Database View -->
+            <div id="database" class="tab-content">
+                <h3>Medical Database Content</h3>
+                <p>This shows the expandable knowledge base used by the system.</p>
+                
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 20px;">
+                    <div style="background: #fff3cd; padding: 15px; border-radius: 5px;">
+                        <h4>🤒 Symptoms (12)</h4>
+                        <div id="symptomsList"></div>
+                    </div>
+                    <div style="background: #d1ecf1; padding: 15px; border-radius: 5px;">
+                        <h4>💊 Medications (8)</h4>
+                        <div id="medicationsList"></div>
+                    </div>
+                    <div style="background: #f8d7da; padding: 15px; border-radius: 5px;">
+                        <h4>⚠️ Allergies (5)</h4>
+                        <div id="allergiesList"></div>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 5px;">
+                    <h4>📈 How to Expand:</h4>
+                    <p>1. Edit <code>medical_db.json</code> file</p>
+                    <p>2. Add more items to each array</p>
+                    <p>3. Restart server to load new data</p>
+                    <p><strong>Future:</strong> Connect to medical APIs for automatic updates</p>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+            // Tab switching
+            function showTab(tabName) {
+                // Update buttons
+                document.querySelectorAll('.tab-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                event.target.classList.add('active');
+                
+                // Show content
+                document.querySelectorAll('.tab-content').forEach(tab => {
+                    tab.classList.remove('active');
+                });
+                document.getElementById(tabName).classList.add('active');
+                
+                // Load database content if on database tab
+                if (tabName === 'database') {
+                    loadDatabaseContent();
+                }
+            }
+            
+            // Load database content for display
+            async function loadDatabaseContent() {
+                try {
+                    const response = await fetch('/database');
+                    const data = await response.json();
+                    
+                    // Display symptoms
+                    let symptomsHtml = '';
+                    data.symptoms.forEach(symptom => {
+                        symptomsHtml += `<div style="padding: 2px 0;">• ${symptom}</div>`;
+                    });
+                    document.getElementById('symptomsList').innerHTML = symptomsHtml;
+                    
+                    // Display medications
+                    let medsHtml = '';
+                    data.medications.forEach(med => {
+                        medsHtml += `<div style="padding: 2px 0;">• ${med}</div>`;
+                    });
+                    document.getElementById('medicationsList').innerHTML = medsHtml;
+                    
+                    // Display allergies
+                    let allergiesHtml = '';
+                    data.allergies.forEach(allergy => {
+                        allergiesHtml += `<div style="padding: 2px 0;">• ${allergy}</div>`;
+                    });
+                    document.getElementById('allergiesList').innerHTML = allergiesHtml;
+                    
+                } catch (error) {
+                    console.error('Error loading database:', error);
+                }
+            }
+            
+            // Analyze conversation
+            async function analyzeConversation() {
+                const text = document.getElementById('conversationText').value;
+                
+                if (!text.trim()) {
+                    alert('Please enter conversation text');
+                    return;
+                }
+                
+                try {
+                    const response = await fetch('/analyze', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({text: text})
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`Server error: ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    
+                    // Display questions
+                    const questionsBox = document.getElementById('questionsBox');
+                    const questions = data.check_result.questions;
+                    
+                    if (questions.length === 0) {
+                        questionsBox.innerHTML = '<h4>✅ All Essential Information Collected!</h4><p>Good job! The conversation has covered all critical information.</p>';
+                    } else {
+                        let questionsHtml = '<h4>❓ Questions to Ask Next:</h4>';
+                        questions.forEach(q => {
+                            const criticalClass = q.priority === 'critical' ? 'critical' : '';
+                            questionsHtml += `
+                                <div class="question-item ${criticalClass}">
+                                    <strong>${q.question}</strong>
+                                    <div style="font-size: 12px; color: #666; margin-top: 3px;">${q.hint}</div>
+                                </div>
+                            `;
+                        });
+                        questionsBox.innerHTML = questionsHtml;
+                    }
+                    
+                    // Display summary
+                    const summaryBox = document.getElementById('summaryBox');
+                    const summaryContent = document.getElementById('summaryContent');
+                    
+                    let summaryHtml = '<div style="margin-bottom: 10px;">';
+                    
+                    // Show extracted data
+                    if (data.extracted.symptoms.length > 0) {
+                        summaryHtml += '<div class="summary-item complete">✅ Symptoms: ' + 
+                                      data.extracted.symptoms.map(s => s.item).join(', ') + '</div>';
+                    }
+                    
+                    if (data.extracted.medications.length > 0) {
+                        summaryHtml += '<div class="summary-item complete">✅ Medications: ' + 
+                                      data.extracted.medications.join(', ') + '</div>';
+                    }
+                    
+                    if (data.extracted.allergies.length > 0) {
+                        summaryHtml += '<div class="summary-item complete">✅ Allergies: ' + 
+                                      data.extracted.allergies.join(', ') + '</div>';
+                    }
+                    
+                    if (data.extracted.time_info.duration || data.extracted.time_info.start_time) {
+                        const time = data.extracted.time_info.duration || data.extracted.time_info.start_time;
+                        summaryHtml += `<div class="summary-item complete">✅ Duration: ${time}</div>`;
+                    }
+                    
+                    if (data.extracted.severity !== 'not mentioned') {
+                        summaryHtml += `<div class="summary-item complete">✅ Severity: ${data.extracted.severity}</div>`;
+                    }
+                    
+                    // Show missing items
+                    data.check_result.missing_items.forEach(item => {
+                        summaryHtml += `<div class="summary-item missing">❌ ${item.name} (${item.priority})</div>`;
+                    });
+                    
+                    summaryHtml += '</div>';
+                    summaryHtml += `<p><strong>Completion:</strong> ${data.check_result.summary.completion_rate}</p>`;
+                    
+                    summaryContent.innerHTML = summaryHtml;
+                    summaryBox.style.display = 'block';
+                    
+                } catch (error) {
+                    alert('Error analyzing conversation: ' + error.message);
+                }
+            }
+            
+            // Clear text
+            function clearText() {
+                document.getElementById('conversationText').value = '';
+                document.getElementById('questionsBox').innerHTML = '<h4>Questions to Ask Next:</h4><p>Click "Analyze" to see questions...</p>';
+                document.getElementById('summaryBox').style.display = 'none';
+            }
+            
+            // Initialize
+            document.addEventListener('DOMContentLoaded', function() {
+                // Initial load of database if on that tab
+                if (document.getElementById('database').classList.contains('active')) {
+                    loadDatabaseContent();
+                }
+            });
+        </script>
+    </body>
+    </html>
+    """
+
+@app.post("/analyze")
+async def analyze_conversation(data: dict):
+    """Analyze conversation text and return results"""
+    if "text" not in data:
+        raise HTTPException(status_code=400, detail="No text provided")
+    
+    text = data["text"]
+    
+    # Step 1: Extract medical information
+    extracted_data = extractor.extract(text)
+    
+    # Step 2: Check for missing information
+    check_result = checker.check(extracted_data)
+    
+    return {
+        "status": "success",
+        "extracted": extracted_data,
+        "check_result": check_result
+    }
+
+@app.get("/database")
+async def get_database():
+    """Return the current medical database"""
+    try:
+        with open("medical_db.json", "r", encoding="utf-8") as f:
+            db = json.load(f)
+        return db
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Database file not found")
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "service": "AI Nursing Assistant Demo",
+        "version": "1.0",
+        "components": ["Medical Extractor", "Missing Checker", "Web Interface"]
+    }
+
+if __name__ == "__main__":
+    print("\n" + "="*60)
+    print("🩺 AI NURSING ASSISTANT - DEMO SYSTEM")
+    print("="*60)
+    print("\n✅ Server starting at: http://localhost:8000")
+    print("\n📱 Features:")
+    print("   • Tab 1: Conversation analysis with question suggestions")
+    print("   • Tab 2: View/expand medical database")
+    print("\n🎯 For Juniors:")
+    print("   • Shows modular design (Extractor, Checker, Database)")
+    print("   • Easy to expand medical_db.json")
+    print("   • Clear separation of concerns")
+    print("\n" + "="*60)
+    
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
