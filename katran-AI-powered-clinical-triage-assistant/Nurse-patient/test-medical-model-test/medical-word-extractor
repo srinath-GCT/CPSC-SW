@@ -1,0 +1,165 @@
+"""
+Medical Information Extractor - Core Logic
+Purpose: Extract symptoms, medications, allergies from conversation text
+"""
+import re
+import json
+from typing import Dict, List, Tuple
+
+class MedicalExtractor:
+    def __init__(self, db_path: str = "medical_db.json"):
+        """Initialize with medical database"""
+        with open(db_path, 'r', encoding='utf-8') as f:
+            self.db = json.load(f)
+        
+        # Build search patterns
+        self.symptom_pattern = self._build_pattern(self.db["symptoms"])
+        self.medication_pattern = self._build_pattern(self.db["medications"])
+        self.allergy_pattern = self._build_pattern(self.db["allergies"])
+        
+    def _build_pattern(self, items: List[str]) -> re.Pattern:
+        """Create regex pattern for efficient searching"""
+        # Escape special characters and join with '|' for OR matching
+        escaped_items = [re.escape(item) for item in items]
+        pattern = r'\b(' + '|'.join(escaped_items) + r')\b'
+        return re.compile(pattern, re.IGNORECASE)
+    
+    def extract(self, text: str) -> Dict:
+        """
+        Extract all medical information from conversation text
+        Returns: Dictionary with symptoms, medications, allergies, etc.
+        """
+        text_lower = text.lower()
+        
+        # 1. Find symptoms with context
+        symptoms = self._find_items_with_context(text_lower, self.symptom_pattern, "symptom")
+        
+        # 2. Find medications (natural patterns: "taking X", "on X")
+        medications = self._find_medications(text_lower)
+        
+        # 3. Find allergies (natural patterns: "allergic to X")
+        allergies = self._find_allergies(text_lower)
+        
+        # 4. Find time/duration information
+        time_info = self._find_time_info(text_lower)
+        
+        # 5. Assess pain severity
+        severity = self._assess_severity(text_lower)
+        
+        # Return structured data
+        return {
+            "symptoms": symptoms,
+            "medications": medications,
+            "allergies": allergies,
+            "time_info": time_info,
+            "severity": severity,
+            "has_data": bool(symptoms or medications or allergies)
+        }
+    
+    def _find_items_with_context(self, text: str, pattern: re.Pattern, item_type: str) -> List[Dict]:
+        """Find items with surrounding context"""
+        items = []
+        for match in pattern.finditer(text):
+            item = match.group()
+            # Get context (50 characters before and after)
+            start = max(0, match.start() - 50)
+            end = min(len(text), match.end() + 50)
+            context = text[start:end]
+            
+            items.append({
+                "item": item,
+                "type": item_type,
+                "context": context.strip(),
+                "position": match.start()
+            })
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_items = []
+        for item in items:
+            if item["item"] not in seen:
+                seen.add(item["item"])
+                unique_items.append(item)
+        
+        return unique_items
+    
+    def _find_medications(self, text: str) -> List[str]:
+        """Find medications using natural language patterns"""
+        medications = []
+        
+        # Pattern 1: "taking [medication]"
+        taking_pattern = r'(?:taking|using|on)\s+(\w+(?:\s+\w+){0,2})'
+        for match in re.finditer(taking_pattern, text, re.IGNORECASE):
+            med = match.group(1)
+            # Check if it's in our medication database
+            if any(known_med in med.lower() for known_med in self.db["medications"]):
+                medications.append(med)
+        
+        return list(set(medications))  # Remove duplicates
+    
+    def _find_allergies(self, text: str) -> List[str]:
+        """Find allergies using natural language patterns"""
+        allergies = []
+        
+        # Pattern: "allergic to [substance]"
+        allergy_pattern = r'allergic to\s+(\w+(?:\s+\w+){0,2})'
+        for match in re.finditer(allergy_pattern, text, re.IGNORECASE):
+            allergy = match.group(1)
+            allergies.append(allergy)
+        
+        return list(set(allergies))
+    
+    def _find_time_info(self, text: str) -> Dict:
+        """Extract time/duration information"""
+        time_info = {"duration": None, "start_time": None}
+        
+        # Look for duration patterns
+        duration_patterns = [
+            r'for\s+(\d+\s*(?:days?|hours?|weeks?))',
+            r'since\s+(yesterday|morning|evening|today)',
+            r'(\d+\s*(?:days?|hours?))\s+ago'
+        ]
+        
+        for pattern in duration_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                if 'for' in pattern:
+                    time_info["duration"] = match.group(1)
+                else:
+                    time_info["start_time"] = match.group(1)
+                break
+        
+        return time_info
+    
+    def _assess_severity(self, text: str) -> str:
+        """Assess pain severity from natural language"""
+        for level, keywords in self.db["severity_keywords"].items():
+            if any(keyword in text for keyword in keywords):
+                return level
+        return "not mentioned"
+
+# Test function
+def test_extractor():
+    """Test the extractor with sample conversations"""
+    extractor = MedicalExtractor()
+    
+    test_cases = [
+        "Patient has severe chest pain since morning. Taking aspirin.",
+        "I have mild headache for 2 days. No medications. Allergic to penicillin.",
+        "Fever and cough. Taking metformin for diabetes.",
+    ]
+    
+    for i, text in enumerate(test_cases, 1):
+        print(f"\n{'='*60}")
+        print(f"Test {i}: {text}")
+        print('-'*60)
+        result = extractor.extract(text)
+        
+        print(f"Symptoms: {[s['item'] for s in result['symptoms']]}")
+        print(f"Medications: {result['medications']}")
+        print(f"Allergies: {result['allergies']}")
+        print(f"Time: {result['time_info']}")
+        print(f"Severity: {result['severity']}")
+
+if __name__ == "__main__":
+    test_extractor()
